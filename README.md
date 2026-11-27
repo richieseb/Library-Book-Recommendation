@@ -46,5 +46,5 @@ library-recommender/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
-
+```
 Streamlit link: https://library-book-recommendation-richieseb.streamlit.app/
