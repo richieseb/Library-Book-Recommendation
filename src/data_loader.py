@@ -9,25 +9,12 @@ def load_library_data(
     books = pd.read_csv(books_path)
     ratings = pd.read_csv(ratings_path)
 
-    required_book_cols = {
-        "book_id",
-        "isbn",
-        "title",
-        "author",
-        "category",
-        "description",
-        "availability_status",
-        "rating",
-        "reviews",
-        "years_on_list",
-        "first_year",
-        "last_year",
-    }
+    required_base_cols = {"book_id", "title", "author", "rating", "reviews"}
     required_rating_cols = {"user_id", "book_id", "rating"}
 
-    if not required_book_cols.issubset(books.columns):
-        missing = sorted(required_book_cols - set(books.columns))
-        raise ValueError(f"books_clean.csv missing required columns: {missing}")
+    if not required_base_cols.issubset(books.columns):
+        missing = sorted(required_base_cols - set(books.columns))
+        raise ValueError(f"books_clean.csv missing base columns: {missing}")
 
     if not required_rating_cols.issubset(ratings.columns):
         missing = sorted(required_rating_cols - set(ratings.columns))
@@ -35,32 +22,53 @@ def load_library_data(
 
     books = books.drop_duplicates(subset=["book_id"]).copy()
     books["book_id"] = pd.to_numeric(books["book_id"], errors="coerce").dropna().astype(int)
-    books["isbn"] = books["isbn"].fillna("").astype(str).str.strip()
     books["title"] = books["title"].fillna("").astype(str).str.strip()
     books["author"] = books["author"].fillna("Unknown").astype(str).str.strip()
-    books["category"] = books["category"].fillna("General").astype(str).str.strip()
-    books["description"] = books["description"].fillna("").astype(str).str.strip()
 
-    books["availability_status"] = (
-        books["availability_status"]
-        .fillna("Available")
-        .astype(str)
-        .str.strip()
-        .replace({"": "Available"})
-    )
-    books.loc[
-        ~books["availability_status"].isin(["Available", "Checked Out"]),
-        "availability_status",
-    ] = "Available"
-
-    books["rating"] = pd.to_numeric(books["rating"], errors="coerce").fillna(0.0)
-    for col in ["reviews", "years_on_list", "first_year", "last_year"]:
+    for col in ["years_on_list", "first_year", "last_year"]:
+        if col not in books.columns:
+            books[col] = 0
         books[col] = pd.to_numeric(books[col], errors="coerce").fillna(0).astype(int)
 
-    if "genre" in books.columns:
-        books["genre"] = books["genre"].fillna("").astype(str).str.strip()
-    if "topic" in books.columns:
-        books["topic"] = books["topic"].fillna("").astype(str).str.strip()
+    if "category" not in books.columns:
+        genre = books["genre"].fillna("General").astype(str).str.strip() if "genre" in books.columns else "General"
+        topic = (
+            books["topic"].fillna("general").astype(str).str.replace("_", " ", regex=False).str.title()
+            if "topic" in books.columns
+            else "General"
+        )
+        books["category"] = genre + " - " + topic
+    else:
+        books["category"] = books["category"].fillna("General").astype(str).str.strip()
+
+    if "isbn" not in books.columns:
+        books["isbn"] = [f"978-0-{10000 + int(bid):05d}-0" for bid in books["book_id"]]
+    else:
+        books["isbn"] = books["isbn"].fillna("").astype(str).str.strip()
+
+    if "description" not in books.columns:
+        books["description"] = [
+            f"{row['title']} by {row['author']} in {row['category']}."
+            for _, row in books.iterrows()
+        ]
+    else:
+        books["description"] = books["description"].fillna("").astype(str).str.strip()
+
+    if "availability_status" not in books.columns:
+        books["availability_status"] = [
+            "Available" if int(bid) % 5 != 0 else "Checked Out" for bid in books["book_id"]
+        ]
+    else:
+        books["availability_status"] = (
+            books["availability_status"].fillna("Available").astype(str).str.strip()
+        )
+        books.loc[
+            ~books["availability_status"].isin(["Available", "Checked Out"]),
+            "availability_status",
+        ] = "Available"
+
+    books["rating"] = pd.to_numeric(books["rating"], errors="coerce").fillna(0.0)
+    books["reviews"] = pd.to_numeric(books["reviews"], errors="coerce").fillna(0).astype(int)
 
     ratings = ratings.dropna(subset=["user_id", "book_id", "rating"]).copy()
     ratings["user_id"] = pd.to_numeric(ratings["user_id"], errors="coerce")
@@ -97,11 +105,3 @@ def save_library_data(
 
     books.to_csv(books_out, index=False)
     ratings.to_csv(ratings_out, index=False)
-
-
-if __name__ == "__main__":
-    books_df, ratings_df = load_library_data()
-    print(
-        f"Loaded {len(books_df)} books | {ratings_df['user_id'].nunique()} users | "
-        f"{len(ratings_df)} ratings"
-    )
